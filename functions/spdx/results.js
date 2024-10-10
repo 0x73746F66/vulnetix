@@ -26,21 +26,60 @@ export async function onRequestGet(context) {
     const { searchParams } = new URL(request.url)
     const take = parseInt(searchParams.get('take'), 10) || 50
     const skip = parseInt(searchParams.get('skip'), 10) || 0
-    const spdx = await prisma.spdx.findMany({
+    let spdx = await prisma.SPDXInfo.findMany({
         where: {
-            memberEmail: verificationResult.session.memberEmail,
+            orgId: verificationResult.session.orgId,
         },
-        omit: {
-            memberEmail: true,
-            comment: true,
-            documentNamespace: true,
-            documentDescribes: true,
+        select: {
+            spdxId: true,
+            source: true,
+            repoName: true,
+            artifactUuid: true,
+            spdxVersion: true,
+            name: true,
+            createdAt: true,
+            toolName: true,
+            packagesCount: true,
+            artifact: {
+                select: {
+                    downloadLinks: {
+                        select: {
+                            contentType: true,
+                            url: true,
+                        }
+                    }
+                }
+            }
         },
         take,
         skip,
         orderBy: {
             createdAt: 'desc',
         },
+    })
+
+    const repos = await prisma.gitRepo.findMany({
+        where: {
+            fullName: { in: spdx.map(s => s?.repoName).filter(s => !!s).filter((value, index, array) => array.indexOf(value) === index) },
+        },
+        select: {
+            avatarUrl: true,
+            fullName: true,
+        },
+    })
+    const repoMap = new Map(repos.map(repo => [repo.fullName, repo.avatarUrl]));
+
+    spdx = spdx.map(item => {
+        let updatedItem = { ...item }
+        if (item.repoName && repoMap.has(item.repoName)) {
+            updatedItem.avatarUrl = repoMap.get(item.repoName)
+        }
+        if (item.artifact && item.artifact.downloadLinks && item.artifact.downloadLinks.length) {
+            updatedItem.downloadLink = item.artifact.downloadLinks.filter(l => l.contentType === 'application/spdx+json')?.pop()?.url
+        }
+        delete updatedItem.artifact
+
+        return updatedItem
     })
 
     return Response.json({ ok: true, spdx })

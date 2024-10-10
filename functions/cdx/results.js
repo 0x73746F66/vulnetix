@@ -26,15 +26,20 @@ export async function onRequestGet(context) {
     const { searchParams } = new URL(request.url)
     const take = parseInt(searchParams.get('take'), 10) || 50
     const skip = parseInt(searchParams.get('skip'), 10) || 0
-    const cdx = await prisma.cdx.findMany({
+    let cdx = await prisma.CycloneDXInfo.findMany({
         where: {
-            memberEmail: verificationResult.session.memberEmail,
+            orgId: verificationResult.session.orgId,
         },
         omit: {
             memberEmail: true,
         },
         include: {
             repo: true,
+            artifact: {
+                include: {
+                    downloadLinks: true
+                }
+            },
         },
         take,
         skip,
@@ -42,6 +47,14 @@ export async function onRequestGet(context) {
             createdAt: 'desc',
         },
     })
+    cdx = cdx.map(item => {
+        let updatedItem = { ...item }
+        if (item.artifact && item.artifact.downloadLinks && item.artifact.downloadLinks.length) {
+            updatedItem.downloadLink = item.artifact.downloadLinks.filter(l => l.contentType === 'application/vnd.cyclonedx+json')?.pop()?.url
+        }
+        delete updatedItem.artifact
 
+        return updatedItem
+    })
     return Response.json({ ok: true, cdx })
 }
